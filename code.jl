@@ -93,27 +93,8 @@ end
 @inline Base.length(A::AdjList) = length(A.data)
 @inline Base.eachindex(A::AdjList) = Base.eachindex(A.data)
 
+# Create empty adj list for a given size
 AdjList(len) = AdjList{Connections}(Connections[Connections() for i in 1:len])
-
-struct AdjListRef{C} <: AbstractVector{C}
-    data::Vector{Ref{C}}
-end
-
-@inline Base.size(A::AdjListRef) = size(A.data)
-@inline Base.getindex(A::AdjListRef, i) = A.data[i][]
-@inline Base.setindex!(A::AdjListRef, v, i) = (A.data[i][] = v)
-@inline Base.length(A::AdjListRef) = length(A.data)
-@inline Base.eachindex(A::AdjListRef) = Base.eachindex(A.data)
-
-AdjListRef(len) = AdjListRef{Connections}(Ref{Connections}[Ref{Connections}(Connections()) for i in 1:len])
-
-function AdjListToRef(adjlist)
-    adjlistref = AdjListRef(length(adjlist))
-    for i in eachindex(adjlist)
-        adjlistref[i] = deepcopy(adjlist[i])
-    end
-    return adjlistref
-end
 
 # Convert the adjacency list using tuples to the adjacency list using Connections
 function adjTupToAdjList(adjtup)
@@ -127,6 +108,7 @@ function adjTupToAdjList(adjtup)
     return adjlist
 end
 
+# Graph struct
 struct Graph
     state::Vector{Float32}
     adjtup::Vector{Vector{Tuple{Int32,Float32}}}
@@ -134,8 +116,10 @@ struct Graph
     adjref::AdjListRef{Connections}
 end
 
+# Random initial state
 randomState(size) = 2f0 .* (rand(Float32, size*size) .- .5f0)
 
+# Graph Constructor
 function Graph(size, NN = 1)
     state = randomState(size)
     adjtup = getSqAdj(size, NN)
@@ -144,6 +128,7 @@ function Graph(size, NN = 1)
     return Graph(state, adjtup, adjlist, adjref)
 end
 
+# Sim struct
 mutable struct Sim
     const g::Graph
     const size::Int32
@@ -153,11 +138,13 @@ mutable struct Sim
     temp::Float32
 end
 
+# Sim Constructor
 function Sim(size, NN = 1)
     g = Graph(size, NN)
     return Sim(g, size, true, false, 0, 1f0)
 end
 
+# Get all relevant variables and dispatch on them
 function startLoop(sim, whichfield)
     g = sim.g
     state = g.state
@@ -167,6 +154,7 @@ function startLoop(sim, whichfield)
     innerloop(sim, g, state, adj, iterator)
 end
 
+# Get the energy factor for a vertex using the adjacency list with tuples
 @inline function getEnergyFactor(state, connections::C) where C <: Vector{Tuple{Int32,Float32}}
     energy = 0.0f0
     @inbounds @simd for weight_idx in eachindex(connections)
@@ -178,12 +166,12 @@ end
     return energy
 end
 
+# Get energy factor for a vertex using AdjList
 @inline function getEnergyFactor(state, connections::C) where C <: Connections
     energy = 0.0f0
     weights = connections.weights
     idxs = connections.idxs
     @turbo for weight_idx in eachindex(connections.idxs)
-    # @inbounds @simd for weight_idx in eachindex(connections.idxs)
         conn_idx = idxs[weight_idx]
         weight = weights[weight_idx]
         energy += -weight * state[conn_idx]
@@ -191,33 +179,40 @@ end
     return energy
 end
 
+# Main monte carlo loop
 Base.@propagate_inbounds function innerloop(sim, g, state, adj::C, iterator) where C
     sim.isrunning = true
     while sim.shouldrun
+        # Get a random index
         idx = rand(iterator)
 
+        # Get the connections for that index
         connections = adj[idx]
 
+        # Get the energy factor for that index
         efactor = getEnergyFactor(state, connections)
     
+        # Get the beta factor
         beta = 1f0/(sim.temp)
          
+        # Get the old state
         oldstate = state[idx]
     
+        # Sample a new state
         newstate = 2f0*(rand(Float32)- .5f0)
     
+        # Get the energy difference
         ediff = efactor*(newstate-oldstate)
     
+        # Stochastically flip based on temperature and energy difference
         if (ediff < 0f0 || rand(Float32) < exp(-beta*ediff))
             @inbounds state[idx] = newstate 
         end
 
+        # Increment the number of updates
         sim.updates += 1
 
         GC.safepoint()
-        # If run using includ, might hang without yielding
-        # Running from REPL works just fine, why?
-        # yield()
     end
     sim.isrunning = false
 end
@@ -242,6 +237,8 @@ function relocate!(sim)
         deleteat!(g.adjlist[idx].weights, length(g.adjlist[idx].weights))
     end
 end
+
+# Localize the internal vectors
 function localize!(sim)
     g = sim.g
     g.adjlist .= deepcopy(g.adjlist)
@@ -256,6 +253,7 @@ function halt(seconds)
     end
 end
 
+# Test run the simulation
 function testrun(sim, adj_symb = :adjlist, sleeptime = 2; print = true)
     # Reset the seed and state
     Random.seed!(1234)
@@ -278,13 +276,8 @@ function testrun(sim, adj_symb = :adjlist, sleeptime = 2; print = true)
         println("Did testrun for $adj_symb: ")
         println("$(sim.updates) updates in $(sleeptime) seconds.")
         display(genImage(sim))
-
     end
     totalupdates = sim.updates
     sim.updates = 0
     return totalupdates
 end
-
-
-
-
