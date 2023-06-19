@@ -1,36 +1,78 @@
+# NN = 1; 8 neighbors per vertex
 const sim = Sim(400);
-const g = sim.g;
-const al1 = g.adjlist[1];
-const at1 = g.adjtup[1];
+println("NN = 1; 8 neighbors per vertex")
 
-# Copy these functions to repl, otherwise the testrun might hang on the sleep function
 
-# Compile
-testrun(sim, 0.1, s = :adjlist)
-testrun(sim, 0.1, s = :adjtup)
+#Precompile
+testrun(sim, :adjtup, 0.1, print = false)
+testrun(sim, :adjlist, 0.1, print = false)
 
-testrun(sim, 2, s = :adjlist)
-testrun(sim, 2, s = :adjlist)
+println("Benchmark getEnergyFactor")
+display(@benchmark getEnergyFactor($sim.g.state, $sim.g.adjtup[1]))     # mean: ~5.287 ns
+display(@benchmark getEnergyFactor($sim.g.state, $sim.g.adjlist[1]))    # mean: ~4.003 ns
+                                                                            # Rel performance adjtup/adjlist: 0.76
+testrun(sim, :adjtup)   # ~23370190 updates
+testrun(sim, :adjlist)  # ~25054611 updates
+                            # Rel performance adjtup/adjlist: 0.93
 
-# Now both are much faster
-println("Making deepcopies of adjlist and adjtup")
-g.adjlist .= deepcopy(g.adjlist)
-g.adjtup .= deepcopy(g.adjtup)
+println("Relocating")
+relocate!(sim)
+testrun(sim, :adjtup)   # ~23436213 updates
+testrun(sim, :adjlist)  # ~18523010 updates
+                            # Rel performance adjtup/adjlist: 1.26
 
-testrun(sim, 2, s = :adjlist)
-testrun(sim, 2, s = :adjtup)
+println("Localizing")
+localize!(sim)
+testrun(sim, :adjtup)   # ~40918586 updates
+testrun(sim, :adjlist)  # ~32039635 updates
+                            # Rel performance adjtup/adjlist: 1.28
 
-# Dont understand the interpolation restuls
-# Now al is super slow even though it is a const
-# Interpolating g.state makes some slower, but @benchmark getEnergyFactor($g.state, $al1) is faster?
-println("Benchmark getting the energy factor for al1: ")
-display(@benchmark getEnergyFactor(g.state, al1))
-println("Benchmark getting the energy factor for at1: ")
-display(@benchmark getEnergyFactor(g.state, at1))
+# NN = 3; 48 neighbors per vertex
+const sim2 = Sim(400, 3)
+println("NN = 3; 48 neighbors per vertex")
 
-# Now it is faster
-println("Benchmark getting the energy factor for al1 after deepcopy: ")
-display(@benchmark getEnergyFactor(g.state, al1))
+println("Benchmark getEnergyFactor")
+display(@benchmark getEnergyFactor($sim2.g.state, $sim2.g.adjtup[1]))     # mean: ~19.817 ns
+display(@benchmark getEnergyFactor($sim2.g.state, $sim2.g.adjlist[1]))    # mean: ~14.660 ns
+                                                                            # Rel performance adjtup/adjlist: 0.74
 
-println("Benchmark getting the energy factor for at1 after deepcopy: ")
-display(@benchmark getEnergyFactor(g.state, at1))
+testrun(sim2, :adjtup)  # ~7582301 updates
+testrun(sim2, :adjlist) # ~7331573 updates
+                            # Rel performance adjtup/adjlist: 1.03
+
+println("Relocating")
+relocate!(sim2)
+testrun(sim2, :adjtup)  # ~7369357 updates
+testrun(sim2, :adjlist) # ~7179336 updates
+                            # Rel performance adjtup/adjlist: 1.03
+
+println("Localizing")
+localize!(sim2)
+testrun(sim2, :adjtup)  # ~8175987 updates
+testrun(sim2, :adjlist) # ~10761614 updates
+                            # Rel performance adjtup/adjlist: 0.76
+
+# NN = 10; 440 neighbors per vertex
+const sim3 = Sim(400, 10)
+println("NN = 10; 440 neighbors per vertex")
+
+println("Benchmark getEnergyFactor")
+display(@benchmark getEnergyFactor($sim3.g.state, $sim3.g.adjtup[1]))     # mean: ~233.333 ns
+display(@benchmark getEnergyFactor($sim3.g.state, $sim3.g.adjlist[1]))    # mean: ~115.628 ns
+                                                                            # Rel performance adjtup/adjlist: 0.50
+
+testrun(sim3, :adjtup)  # ~2732528 updates
+testrun(sim3, :adjlist) # ~2975036 updates
+                            # Rel performance adjtup/adjlist: 0.92
+
+println("Relocating")
+relocate!(sim3)
+testrun(sim3, :adjtup)  # ~2854341 updates
+testrun(sim3, :adjlist) # ~2845265 updates
+                            # Rel performance adjtup/adjlist: 1.00
+
+println("Localizing")
+localize!(sim3)
+testrun(sim3, :adjtup)  # ~3303150 updates
+testrun(sim3, :adjlist) # ~3532045 updates
+                            # Rel performance adjtup/adjlist: 0.94
