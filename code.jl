@@ -23,7 +23,6 @@ end
 function idxToCoord(idx, size)
     return (mod(idx-1, size) + 1, div(idx-1, size) + 1)
 end
-
 function coordToIdx(i, j, size)
     return (j-1)*size + i
 end
@@ -80,6 +79,7 @@ struct Connections
 
     Connections() = new(Int32[], Float32[])
 end
+
 @inline Base.eachindex(conns::Connections) = Base.eachindex(conns.idxs) 
 
 # A list of vertex connections for a graph
@@ -94,6 +94,26 @@ end
 @inline Base.eachindex(A::AdjList) = Base.eachindex(A.data)
 
 AdjList(len) = AdjList{Connections}(Connections[Connections() for i in 1:len])
+
+struct AdjListRef{C} <: AbstractVector{C}
+    data::Vector{Ref{C}}
+end
+
+@inline Base.size(A::AdjListRef) = size(A.data)
+@inline Base.getindex(A::AdjListRef, i) = A.data[i][]
+@inline Base.setindex!(A::AdjListRef, v, i) = (A.data[i][] = v)
+@inline Base.length(A::AdjListRef) = length(A.data)
+@inline Base.eachindex(A::AdjListRef) = Base.eachindex(A.data)
+
+AdjListRef(len) = AdjListRef{Connections}(Ref{Connections}[Ref{Connections}(Connections()) for i in 1:len])
+
+function AdjListToRef(adjlist)
+    adjlistref = AdjListRef(length(adjlist))
+    for i in eachindex(adjlist)
+        adjlistref[i] = deepcopy(adjlist[i])
+    end
+    return adjlistref
+end
 
 # Convert the adjacency list using tuples to the adjacency list using Connections
 function adjTupToAdjList(adjtup)
@@ -111,6 +131,7 @@ struct Graph
     state::Vector{Float32}
     adjtup::Vector{Vector{Tuple{Int32,Float32}}}
     adjlist::AdjList{Connections}
+    adjref::AdjListRef{Connections}
 end
 
 randomState(size) = 2f0 .* (rand(Float32, size*size) .- .5f0)
@@ -119,7 +140,8 @@ function Graph(size, NN = 1)
     state = randomState(size)
     adjtup = getSqAdj(size, NN)
     adjlist = adjTupToAdjList(adjtup)
-    return Graph(state, adjtup, adjlist)
+    adjref = AdjListToRef(adjlist)
+    return Graph(state, adjtup, adjlist, adjref)
 end
 
 mutable struct Sim
@@ -139,8 +161,6 @@ end
 function startLoop(sim, whichfield)
     g = sim.g
     state = g.state
-    # adjlist = g.adjlist
-    # adjtup = g.adjtup
     adj = getfield(g, whichfield)
     iterator = UnitRange{Int32}(1, length(state))
 
@@ -171,10 +191,6 @@ end
     return energy
 end
 
-@inline function sampleCState()
-    2f0*(rand(Float32)- .5f0)
-end
-
 Base.@propagate_inbounds function innerloop(sim, g, state, adj::C, iterator) where C
     sim.isrunning = true
     while sim.shouldrun
@@ -188,7 +204,7 @@ Base.@propagate_inbounds function innerloop(sim, g, state, adj::C, iterator) whe
          
         oldstate = state[idx]
     
-        newstate = sampleCState()
+        newstate = 2f0*(rand(Float32)- .5f0)
     
         ediff = efactor*(newstate-oldstate)
     
@@ -206,41 +222,69 @@ Base.@propagate_inbounds function innerloop(sim, g, state, adj::C, iterator) whe
     sim.isrunning = false
 end
 
+# Generate an image from the current state
 function genImage(sim)
     state = sim.g.state
     size = sim.size
     return imagesc(reshape(state, size, size))
 end
 
-function testrun(sim, sleeptime = 5; s = :adjlist, print = true, printdebug = false)
-    println("Starting testrun...")
+# Relocate the internal vectors
+function relocate!(sim)
+    g = sim.g
+    for idx in eachindex(g.adjtup)
+        push!(g.adjtup[idx], (0,0))
+        deleteat!(g.adjtup[idx], length(g.adjtup[idx]))
+
+        push!(g.adjlist[idx].idxs,0)
+        push!(g.adjlist[idx].weights, 0)
+        deleteat!(g.adjlist[idx].idxs, length(g.adjlist[idx].idxs))
+        deleteat!(g.adjlist[idx].weights, length(g.adjlist[idx].weights))
+    end
+end
+function localize!(sim)
+    g = sim.g
+    g.adjlist .= deepcopy(g.adjlist)
+    g.adjtup .= deepcopy(g.adjtup)
+    return
+end
+
+# Can't use sleep because of bug
+function halt(seconds)
+    ti = time()
+    while time() - ti < seconds
+    end
+end
+
+function testrun(sim, adj_symb = :adjlist, sleeptime = 2; print = true)
     # Reset the seed and state
     Random.seed!(1234)
     sim.g.state .= 2f0 .* rand(Float32, sim.size*sim.size) .- 1f0
     
     # Start the loop and sleep for an amount of time
-    printdebug && println("Starting loop...")
     sim.shouldrun = true
 
-    Threads.@spawn startLoop(sim, s)
-
-    printdebug & println("Sleeping")
-    sleep(sleeptime)
+    Threads.@spawn startLoop(sim, adj_symb)
+    halt(sleeptime)
 
     # Stop the loop
-    printdebug && println("Stopping loop...")
     sim.shouldrun = false
     while sim.isrunning
-        sleep(.1)
+        sleep(1e-6)
     end
 
     # Gather and return the data
     if print
-        println("Did testrun for $s: ")
+        println("Did testrun for $adj_symb: ")
         println("$(sim.updates) updates in $(sleeptime) seconds.")
+        display(genImage(sim))
+
     end
+    totalupdates = sim.updates
     sim.updates = 0
-    display(genImage(sim))
-    return
+    return totalupdates
 end
+
+
+
 
