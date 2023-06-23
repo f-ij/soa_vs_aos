@@ -113,7 +113,6 @@ struct Graph
     state::Vector{Float32}
     adjtup::Vector{Vector{Tuple{Int32,Float32}}}
     adjlist::AdjList{Connections}
-    adjref::AdjListRef{Connections}
 end
 
 # Random initial state
@@ -124,8 +123,7 @@ function Graph(size, NN = 1)
     state = randomState(size)
     adjtup = getSqAdj(size, NN)
     adjlist = adjTupToAdjList(adjtup)
-    adjref = AdjListToRef(adjlist)
-    return Graph(state, adjtup, adjlist, adjref)
+    return Graph(state, adjtup, adjlist)
 end
 
 # Sim struct
@@ -281,3 +279,7 @@ function testrun(sim, adj_symb = :adjlist, sleeptime = 2; print = true)
     sim.updates = 0
     return totalupdates
 end
+
+
+
+
